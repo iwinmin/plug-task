@@ -1,3 +1,5 @@
+'use strict';
+
 // create a processor stream
 function processor(transform)
 {
@@ -7,6 +9,7 @@ function processor(transform)
 		transform: transform
 	});
 }
+exports.processor = processor;
 
 // gulp sources stream
 function src(opts)
@@ -117,6 +120,31 @@ function sync(streams)
 	return stream;
 }
 exports.sync = sync;
+
+// delay push typings file to typescript complie
+function delay_typings() {
+	var typings = [];
+	return processor(function (file, enc, done){
+		if (typings)
+		{
+			if (/\.d\.ts$/i.test(file.path))
+			{
+				typings.push(file);
+				return done();
+			}
+			else
+			{
+				for (let f of typings)
+				{
+					this.push(f);
+				}
+				typings = false;
+			}
+		}
+		done(0, file);
+	});
+}
+exports.delay_typings = delay_typings;
 
 // wrapper file content with head and foot
 function wrapper(options)

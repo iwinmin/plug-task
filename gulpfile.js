@@ -1,6 +1,7 @@
 /*
 Gulp tasks config file
 */
+'use strict';
 var gulp = require("gulp");
 var libs = require('./gulplibs');
 
@@ -93,7 +94,8 @@ function build(sources, options) {
 	if (!options.outFile)
 	{
 		var changed = require('gulp-changed');
-		tsResult = tsResult.pipe(changed(dist_root, {extension: '.js'}));
+		tsResult = tsResult.pipe(changed(dist_root, {extension: '.js'}))
+			.pipe(libs.delay_typings());
 	}
 	tsResult = tsResult
 		.pipe(sourcemaps.init())
