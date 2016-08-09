@@ -1,0 +1,26 @@
+{
+  "name": "module_name",
+  "version": "0.1.0",
+  "description": "module description",
+  "readme": "No README",
+  "author": "PnP Academy",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git@git.server:aio/garage.git#guide-module"
+  },
+  "main": "./dist/main.js",
+  "typings": "./dist/_typings/main.d.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "del": "^2.2.1",
+    "gulp": "^3.9.1",
+    "gulp-prune": "^0.2.0",
+    "gulp-sourcemaps": "^1.6.0",
+    "gulp-typescript": "^2.13.6",
+    "source-map-support": "^0.4.1",
+    "google-closure-compiler": "^20160713.2.0"
+  }
+}
