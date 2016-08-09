@@ -1,13 +1,13 @@
 {
-  "name": "module_name",
+  "name": "plug-task",
   "version": "0.1.0",
-  "description": "module description",
+  "description": "Javascript ES6 Generator base multiply tasks library",
   "readme": "No README",
-  "author": "PnP Academy",
+  "author": "Winmin",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git@git.server:aio/garage.git#guide-module"
+    "url": "https://github.com/iwinmin/plug-task.git"
   },
   "main": "./dist/main.js",
   "typings": "./dist/_typings/main.d.ts",

@@ -15,7 +15,7 @@ const node_sources = [
 	{base: src_root, cwd: src_root}
 ];
 
-const module_namespace = '#module_name#';
+const module_namespace = '#plug-task#';
 const addon_libs = ['**/*.d.ts'];
 const amd_sources = [
 	['main.ts'],
