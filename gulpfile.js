@@ -155,10 +155,10 @@ gulp.task('build:gcc', ['prune', 'build:amd'], function() {
 					// ECMASCRIPT6, ECMASCRIPT6_STRICT, ECMASCRIPT6_TYPED
 					language_in: 'ECMASCRIPT6',
 					language_out: 'ECMASCRIPT5',
-					// rewrite_polyfills: null,
 					js_output_file: file_out,
 					js: dist_root + '/' + path
 				}).src()
+				.on('error', (e)=>{})
 				.pipe(gulp.dest(dist_root))
 			);
 		}
