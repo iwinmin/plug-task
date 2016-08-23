@@ -1,5 +1,5 @@
 # plug-task
-> ECMASCRIPT6 Javascript multiply task module
+> ECMASCRIPT6 JavaScript multiply task module
 
 ## v0.2.0 changelog
 - complete the test case and examples
@@ -13,6 +13,8 @@ $ npm install --save plug-task
 ```
 
 ## Examples
+> TypeScript Code
+
 ```typescript
 import * as plugtask from 'plug-task';
 
@@ -153,7 +155,91 @@ plugtask.setExceptionHaldler(()=>{});
 // start to run the first main task
 plugtask.start(main_task());
 ```
-**Output**
+
+> JavaScript Code
+
+```js
+"use strict";
+const plugtask = require('plug-task');
+function* subtask(id) {
+    console.log('<subtask %d> started', id);
+    console.log('<subtask %d> start async_call()', id);
+    let result = yield* async_call(id);
+    console.log('<subtask %d> async_call() return: %s', id, result);
+    yield* plugtask.sleep(id * 1000);
+    console.log('<subtask %d> end', id);
+    return 100 + id;
+}
+function* async_call(id) {
+    yield* plugtask.sleep(id * 1000);
+    if (id % 2) {
+        yield* plugtask.exit(id, new Error('plugtask EXIT'));
+    }
+    return `call ${id} finish`;
+}
+function* promise_task(mode) {
+    yield* plugtask.sleep(1000);
+    if (mode % 2) {
+        throw new Error(`promise exception ${mode}`);
+    }
+    else {
+        return `promise value ${mode}`;
+    }
+}
+function* main_task() {
+    console.log('<main_task> start');
+    var task0 = plugtask.start(subtask(0));
+    yield* plugtask.join(task0);
+    console.log('<main_task> task0 end with result:', task0.result);
+    var task1 = plugtask.start(subtask(1));
+    let error_code = yield* plugtask.join(task1);
+    console.error(`<main_task> task1 exited: %s [code: %d]`, task1.error.toString(), error_code);
+    console.log('---- join() api test end ----\n');
+    var task2 = plugtask.start(promise_task(0));
+    task2.then((value) => {
+        console.log(`<main_task> task2.then() value: ${value}`);
+    });
+    var task3 = plugtask.start(promise_task(1));
+    task3.catch((err) => {
+        console.error('<main_task> task3.catch() got exception:', err);
+    });
+    console.log('---- main_task will not wait promise callback done ----');
+    yield* plugtask.sleep(1500);
+    console.log('---- promise like api test end ----\n');
+    try {
+        var result = yield new Promise((resolve) => {
+            setTimeout(() => { resolve('promise resolved'); }, 1000);
+        });
+        console.log('<main_task> yield promise and get the result: %s', result);
+        let error = yield Promise.reject('promise rejected');
+        console.log('<main_task> should not run this code');
+    }
+    catch (err) {
+        console.error('<main_task> yield promise throw error: ', err);
+    }
+    console.log('---- yield promise test end ----\n');
+    try {
+        var value = yield plugtask.start(promise_task(2));
+        console.log(`<main_task> yield task return value: ${value}`);
+    }
+    catch (err) {
+        console.log(`<main_task> yield task throw an error: `, err);
+    }
+    console.log('---- yield Task object test end ----\n');
+    var tasks = [
+        plugtask.start(subtask(2)),
+        plugtask.start(subtask(3)),
+        plugtask.start(promise_task(3)),
+    ];
+    let codes = yield* plugtask.join_all(tasks);
+    console.log('<main_task> tasks exit code is: ', codes);
+    console.log('<main_task> finish');
+}
+plugtask.setExceptionHandler(() => { });
+plugtask.start(main_task());
+```
+
+### Output
 ```
 <main_task> start
 <subtask 0> started
@@ -363,6 +449,7 @@ __callback2thunk__ | `function` | first param accept a thunk_callback format fun
 **NodeJS fs.write example**
 
 ```js
+"use strict";
 var fs = require('fs');
 var plugtask = require('plug-task');
 
@@ -436,6 +523,8 @@ name | type | comment
 ### Queue Examples
 
 #### Synchronization tasks
+> TypeScript Code
+
 ```typescript
 import * as plugtask from 'plug-task';
 
@@ -469,6 +558,32 @@ plugtask.start(consumer(1), 'consumer_1');
 plugtask.start(consumer(2), 'consumer_2');
 ```
 
+> JavaScript Code
+
+```js
+"use strict";
+const plugtask = require('plug-task');
+var queue = new plugtask.Queue(2);
+function* producer() {
+    var id = 1;
+    while (true) {
+        console.log('put [ %d ] into queue', id);
+        yield* queue.put(id++);
+    }
+}
+function* consumer(id) {
+    var time = 3;
+    while (time-- > 0) {
+        let num = yield* queue.get();
+        console.log('queue<%d> get [ %d ] from queue', id, num);
+        yield* plugtask.sleep(1000);
+    }
+}
+plugtask.start(producer(), 'producer');
+plugtask.start(consumer(1), 'consumer_1');
+plugtask.start(consumer(2), 'consumer_2');
+```
+
 ##### Result
 > producer task will put 2 number into queue, and queue will be fulled,
 > producer will suspend, two consumer task start get number from queue,
@@ -493,6 +608,7 @@ put [ 9 ] into queue
 ```
 
 #### Resource Locker
+> TypeScript Code
 
 ```typescript
 import * as plugtask from 'plug-task';
@@ -522,6 +638,29 @@ function* visitor(name:string):plugtask.TaskInstance<void>
 }
 
 // create two visitor task
+plugtask.start(visitor('jack'), 'visitor_jask');
+plugtask.start(visitor('rose'), 'visitor_rose');
+```
+
+> JavaScript Code
+
+```js
+"use strict";
+const plugtask = require('plug-task');
+let keeper = new plugtask.Queue(0, ['key']);
+function* visitor(name) {
+    for (let time = 1; time <= 3; time++) {
+        let key = yield* keeper.get();
+        try {
+            console.log('%s accessing the resource %d time', name, time);
+            yield* plugtask.sleep(1000);
+        }
+        finally {
+            console.log('%s return the key %d time', name, time);
+            yield* keeper.put(key);
+        }
+    }
+}
 plugtask.start(visitor('jack'), 'visitor_jask');
 plugtask.start(visitor('rose'), 'visitor_rose');
 ```
