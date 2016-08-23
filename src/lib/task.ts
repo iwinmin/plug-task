@@ -1,50 +1,22 @@
-// interface TaskInstance
-export interface TaskInstance<T> extends IterableIterator<T> {
-	is_async_iterator?: void;
-	next(value: any): IteratorResult<any>;
-	throw?(e: any): IteratorResult<any>;
-	[Symbol.iterator](): TaskInstance<T>;
-}
+import { throw_error, TaskInstance, CONFIG, hrtime, onException } from './util';
 
-// Task Object
-export interface TaskBase {
-	id:number;
-	result:any;
-	callback_error:Function;
-	callback_success:Function;
-	exit(result?:any):boolean;
-	detach():void;
-	is_done():boolean;
-	is_detach():boolean;
-	join(task_id:number):void;
-	suspend():boolean;
-	get_data(key:string, default_value?:any):any;
-	set_data(key:string, value:any):void;
-	resume(is_error:boolean, data:any, do_run:boolean):void;
-	run():void;
-}
+// Task Status
+const TASK_STAT = {
+	SUSPEND: -1,
+	RUNNING: 0,
+	RESUMED: 1,
+	DONE: -3,
+	ERROR: -4,
+	EXITED: -5,
+};
+var VOID:void;
 
+// global runtime variable
 var TASK_ID = 1;
 var CURRENT_TASK_INDEX:number = -1;
-var CURRENT_TASK:TaskBase = null;
-var ALL_TASKS:Map<number,TaskBase> = new Map<number,TaskBase>();
-var RUNNING_TASKS:TaskBase[] = [];
-
-var HR_TIME = ('object' == typeof process) && process.hrtime;
-if (!HR_TIME)
-{
-	HR_TIME = function(start?:number[]) {
-		let now = Date.now();
-		if (start)
-		{
-			return [(now - start[0]) / 1000];
-		}
-		else
-		{
-			return [now];
-		}
-	}
-}
+var CURRENT_TASK:Task<any> = null;
+var ALL_TASKS:Map<number,Task<any>> = new Map();
+var RUNNING_TASKS:Task<any>[] = [];
 
 // generate new task id
 function new_id() {
@@ -55,54 +27,81 @@ function new_id() {
 	return TASK_ID;
 }
 
-function remove_from_running(task:TaskBase)
+// remove a task from the running queue
+function remove_from_running(task:Task<any>)
 {
 	let idx = RUNNING_TASKS.indexOf(task);
 	if (idx > -1)
 	{
 		RUNNING_TASKS.splice(idx, 1);
-		if (idx === CURRENT_TASK_INDEX)
+		if (idx <= CURRENT_TASK_INDEX)
 		{
-			idx--;
+			CURRENT_TASK_INDEX--;
 		}
 	}
 }
 
-function resume_tasks(ids:number[], is_error:boolean, result:any)
+// task dispatch routine
+function run_tasks()
 {
-	while (ids.length > 0)
+	if (CURRENT_TASK_INDEX === -1)
 	{
-		let task = ALL_TASKS.get(ids.shift());
-		if (task)
+		while (RUNNING_TASKS.length > 0)
 		{
-			task.resume(is_error, result, false);
+			CURRENT_TASK_INDEX = (CURRENT_TASK_INDEX + 1) % RUNNING_TASKS.length;
+			CURRENT_TASK = RUNNING_TASKS[CURRENT_TASK_INDEX];
+			Task.run(CURRENT_TASK);
 		}
+		CURRENT_TASK = null;
+		CURRENT_TASK_INDEX = -1;
 	}
 }
 
-// Task Status
-const TASK_STATUS = {
-	RUNNING: 1,
-	PENDING: 2,
-	EXITED: 3,
-	DONE: 4
-};
+// current task id
+export function id()
+{
+	return CURRENT_TASK ? CURRENT_TASK.id : 0;
+}
+
+// get task of task_id
+export function get(task_id:number):Task<any>
+{
+	return ALL_TASKS.get(task_id);
+}
+
+// get current task
+export function self():Task<any>
+{
+	if (CURRENT_TASK){
+		return CURRENT_TASK;
+	}
+	else
+	{
+		throw_error(100);
+	}
+}
 
 /**
  * Task
  */
-class Task implements TaskBase {
+export class Task<T> implements Promise<T> {
 	public id = new_id();
-	public result:any = null;
-	private is_error:boolean;
-	private status = TASK_STATUS.RUNNING;
-	private detached = false;
-	private data:Map<string,any> = new Map<string,any>();
+	public code = 0;
+	public error:any;
+	public result:T;
+	public is_error = false;
+	public resume_success:(data?:any)=>void;
+	public resume_thunk:(error:any, data?:any)=>void;
+
+	private stat:number = TASK_STAT.RUNNING;
+	private value:any;
+	private data = new Map<string,any>();
 	private join_task_ids:number[] = [];
-	public callback_success:Function;
-	public callback_error:Function;
+	private promise:Promise<T>;
+	private promise_callbacks:Function[];
+
 	constructor(
-		private generator:TaskInstance<any>,
+		private generator:TaskInstance<T>,
 		private parent_tid:number,
 		public comment?:string)
 	{
@@ -112,94 +111,42 @@ class Task implements TaskBase {
 		{
 			this.comment = `Task<#${this.id}>`;
 		}
-		this.callback_success = (data:any) => {
-			this.resume(false, data, true);
+		this.resume_success = (data?:any) => {
+			Task.resume(this, false, data);
+			run_tasks();
 		}
-		this.callback_error = (error:any, data:any) => {
+		this.resume_thunk = (error:any, data?:any) => {
 			if (error)
 			{
-				this.resume(true, error, true);
+				Task.resume(this, true, error);
 			}
 			else
 			{
-				this.resume(false, data, true);
+				Task.resume(this, false, data);
 			}
+			run_tasks();
 		}
-	}
-
-	public exit(result?:any)
-	{
-		if (this.is_done())
-		{
-			return false;
-		}
-		else
-		{
-			// remove this task from ALL_TASKS
-			ALL_TASKS.delete(this.id);
-			this.status = TASK_STATUS.EXITED;
-			this.result = result;
-			remove_from_running(this);
-			resume_tasks(this.join_task_ids, true, result);
-			run();
-			return true;
-		}
+		run_tasks();
 	}
 
 	public detach()
 	{
 		this.parent_tid = 0;
-		this.detached = true;
-	}
-
-	public is_done()
-	{
-		let s = this.status;
-		return (s == TASK_STATUS.DONE || s == TASK_STATUS.EXITED);
 	}
 
 	public is_detach()
 	{
-		return this.detached;
+		return (this.parent_tid == 0);
 	}
 
-	public join(task_id:number)
+	public is_done()
 	{
-		if (this.join_task_ids.indexOf(task_id) == -1)
-		{
-			this.join_task_ids.push(task_id);
-		}
+		return (this.stat <= TASK_STAT.DONE);
 	}
 
-	public suspend()
+	public get_data(key:string, default_value?:any):any
 	{
-		if (this.status == TASK_STATUS.RUNNING)
-		{
-			this.status = TASK_STATUS.PENDING;
-			remove_from_running(this);
-			return true;
-		}
-		return false;
-	}
-
-	public resume(is_error:boolean, data:any, do_run:boolean)
-	{
-		if (this.status == TASK_STATUS.PENDING)
-		{
-			this.is_error = is_error;
-			this.result = data;
-			this.status = TASK_STATUS.RUNNING;
-			RUNNING_TASKS.push(this);
-			if (do_run)
-			{
-				run();
-			}
-		}
-	}
-
-	public get_data(key:string, default_value?:any)
-	{
-		let parent_task:TaskBase;
+		let parent_task:Task<any>;
 		if (this.data.has(key))
 		{
 			return this.data.get(key);
@@ -219,207 +166,197 @@ class Task implements TaskBase {
 		this.data.set(key, value);
 	}
 
-	public run()
+	// promise like
+	[Symbol.toStringTag]: "Promise";
+	public then<TResult>(
+		onfulfilled:(value:T)=>TResult | PromiseLike<TResult>,
+		onrejected?:(reason:any)=>TResult | PromiseLike<TResult> | void
+	):Promise<TResult>
 	{
-		let error = this.is_error;
-		let result = this.result;
-		let done = false;
-		let gen = this.generator;
-		let start_time = HR_TIME();
-		do {
-			try
-			{
-				result = error ? gen.throw(result) : gen.next(result);
-				error = false;
-				done = result.done;
-				result = result.value;
-				// check result value type
-				if (!done)
+		if (!this.promise)
+		{
+			Task.create_promise(this);
+		}
+		return this.promise.then(onfulfilled, onrejected);
+	}
+	public catch(onrejected?: (reason: any) => T | PromiseLike<T> | void): Promise<T>
+	{
+		if (!this.promise)
+		{
+			Task.create_promise(this);
+		}
+		return this.promise.catch(onrejected);
+	}
+
+	// add a waiting task id to current task
+	// private api, do not use directly
+	static add_join_id(self:Task<any>, task_id:number)
+	{
+		if (self.join_task_ids.indexOf(task_id) == -1)
+		{
+			self.join_task_ids.push(task_id);
+		}
+	}
+
+	// suspend a task
+	// private api, do not use directly
+	static suspend(self:Task<any>)
+	{
+		// if (self.status == TASK_STATUS.RUNNING)
+		switch (self.stat)
+		{
+			case TASK_STAT.RUNNING:
+				self.stat = TASK_STAT.SUSPEND;
+				remove_from_running(self);
+				return;
+			case TASK_STAT.RESUMED:
+				self.stat = TASK_STAT.RUNNING;
+				return self.value;
+		}
+	}
+
+	// resume a task with
+	static resume(self:Task<any>, is_error:boolean, data:any)
+	{
+		// save last resume result
+		self.is_error = is_error;
+		self.value = data;
+		// change task stat
+		switch (self.stat)
+		{
+			case TASK_STAT.SUSPEND:
+				self.stat = TASK_STAT.RUNNING;
+				RUNNING_TASKS.push(self);
+				break;
+			case TASK_STAT.RUNNING:
+				self.stat = TASK_STAT.RESUMED;
+				break;
+		}
+	}
+
+	static exit(self:Task<any>, code?:number, error?:any)
+	{
+		// remove current task from ALL_TASKS
+		self.code = code || 0;
+		self.error = error;
+		Task.finish_task(self, TASK_STAT.EXITED, true, error);
+		run_tasks();
+	}
+
+	// run a task
+	static run(self:Task<any>)
+	{
+		let start_ts = CONFIG.switch_time ? hrtime() : null;
+		let gen = self.generator;
+
+		try
+		{
+			let data = self.value;
+			self.value = VOID;
+			do {
+				let is_error = self.is_error;
+				self.is_error = false;
+				let result = is_error ? gen.throw(data) : gen.next(data);
+				data = result.value;
+				if (result.done)
 				{
-					if (result && result.then instanceof Function)
-					{
-						this.suspend();
-						result.then(this.callback_success, this.callback_error);
-						break;
-					}
-					continue;
+					// task done
+					self.result = data;
+					Task.finish_task(self, TASK_STAT.DONE, false, data);
+					return;
 				}
-			}
-			catch (err)
+				if (data && data.then instanceof Function)
+				{
+					// yield value is promise like object
+					data.then(self.resume_success, self.resume_thunk);
+					data = Task.suspend(self);
+				}
+			} while (
+				self.stat === TASK_STAT.RUNNING &&
+				// if more than 1 task, each task max run 1 seconds
+				(!start_ts || RUNNING_TASKS.length === 1 ||
+					hrtime(start_ts)[0] < CONFIG.switch_time)
+			)
+			// async wait or switch task, save current value
+			switch (self.stat)
 			{
-				error = true;
-				result = err;
+				// case TASK_STAT.SUSPEND:
+				// do nothing, wait resume callback
+				case TASK_STAT.RUNNING:
+					// switch time timeout, save current data
+					self.value = data;
+					break;
+				case TASK_STAT.RESUMED:
+					// should not resume without suspend call, throw error
+					throw_error(102);
+					break;
 			}
-			// task code finish and exit
-			ALL_TASKS.delete(this.id);
-			this.status = TASK_STATUS.DONE;
-			remove_from_running(this);
-			resume_tasks(this.join_task_ids, error, result);
-			if (error)
+		}
+		catch (err)
+		{
+			// uncaught exception error
+			self.code = -1;
+			self.error = err;
+			Task.finish_task(self, TASK_STAT.ERROR, true, err);
+		}
+	}
+
+	// finish a task, and put it back to the running queue
+	static finish_task(self:Task<any>, stat:number, is_error:boolean, value:any)
+	{
+		// save the result to the task
+		self.stat = stat;
+		self.value = VOID;
+		self.generator = null;
+		self.is_error = is_error;
+
+		// remove task from queue list
+		ALL_TASKS.delete(self.id);
+		remove_from_running(self);
+
+		// wake up all joined task
+		let ids = self.join_task_ids;
+		while (ids.length > 0)
+		{
+			let task = ALL_TASKS.get(ids.shift());
+			if (task)
 			{
-				console.log(
-					'%s uncaughtException:\n%s\n',
-					this.comment,
-					result.toString(),
-					result
-				);
+				Task.resume(task, false, VOID);
 			}
-			break;
-		} while (
-			this.status === TASK_STATUS.RUNNING &&
-			(RUNNING_TASKS.length === 1 ||
-				HR_TIME(start_time)[0] < 1) // max run 1 seconds
-		)
-		this.is_error = error;
-		this.result = result;
-	}
-}
-
-export function throw_error(code:number):Error
-{
-	let message:string = [
-		'Not in plug-task runtime context',
-		'Task has detached'
-	][code % 10];
-	return new Error(`E${code}: ${message}`);
-}
-
-export function get(id:number):TaskBase
-{
-	return ALL_TASKS.get(id);
-}
-
-export function run()
-{
-	if (CURRENT_TASK_INDEX === -1)
-	{
-		while (RUNNING_TASKS.length > 0)
-		{
-			CURRENT_TASK_INDEX = (CURRENT_TASK_INDEX + 1) % RUNNING_TASKS.length;
-			CURRENT_TASK = RUNNING_TASKS[CURRENT_TASK_INDEX];
-			CURRENT_TASK.run();
 		}
-		CURRENT_TASK = null;
-		CURRENT_TASK_INDEX = -1;
-	}
-}
 
-// start a nwe task
-export function start(generator:TaskInstance<any>, comment?:string):TaskBase
-{
-	let task = new Task(
-		generator,
-		CURRENT_TASK ? CURRENT_TASK.id : 0,
-		comment
-	);
-	run();
-	return task;
-}
-
-// get current task
-export function self():TaskBase
-{
-	if (!CURRENT_TASK)
-	{
-		throw_error(100);
-	}
-	return CURRENT_TASK;
-}
-
-// get current task id
-export function self_id():number
-{
-	if (!CURRENT_TASK)
-	{
-		throw_error(100);
-	}
-	return CURRENT_TASK.id;
-}
-
-// wait a sub task end
-export function join(task:TaskBase)
-{
-	if (CURRENT_TASK_INDEX == -1)
-	{
-		throw_error(100);
-	}
-	else
-	{
-		if (task.is_done())
+		// call the promise callback function
+		let cbs = self.promise_callbacks;
+		if (cbs)
 		{
-			return task.result;
+			self.promise_callbacks = null;
+			cbs[is_error?1:0](value);
 		}
-		else if (task.is_detach())
+
+		// trigger task error exception
+		if (is_error && value && !self.promise)
 		{
-			throw_error(101);
-		}
-		else
-		{
-			// suspend current task
-			task.join(CURRENT_TASK.id);
-			CURRENT_TASK.suspend();
+			onException(self.comment, value);
 		}
 	}
-}
 
-// wait all sub task end
-export function* join_all(tasks:TaskBase[]):TaskInstance<void>
-{
-	for (let task of tasks)
+	// create and return a task's promise object
+	static create_promise<TT>(self:Task<TT>)
 	{
-		yield join(task);
-	}
-}
-
-// suspend task for certain time
-export function sleep(ms:number)
-{
-	if (CURRENT_TASK)
-	{
-		setTimeout(CURRENT_TASK.callback_success, ms);
-		CURRENT_TASK.suspend();
-	}
-	else
-	{
-		throw_error(100);
-	}
-}
-
-// suspend current task
-export function suspend():any
-{
-	if (CURRENT_TASK)
-	{
-		CURRENT_TASK.suspend();
-	}
-	else
-	{
-		throw_error(100);
-	}
-}
-
-// get task private data
-export function get_data(key:string, default_value?:any)
-{
-	if (CURRENT_TASK)
-	{
-		return CURRENT_TASK.get_data(key, default_value);
-	}
-	else
-	{
-		throw_error(100);
-	}
-}
-
-// set task private data
-export function set_data(key:string, value:any)
-{
-	if (CURRENT_TASK)
-	{
-		return CURRENT_TASK.set_data(key, value);
-	}
-	else
-	{
-		throw_error(100);
+		self.promise = new Promise<TT>(function(resolve, reject)
+		{
+			if (!self.is_done())
+			{
+				self.promise_callbacks = [resolve, reject];
+			}
+			else if (self.is_error)
+			{
+				reject(self.error);
+			}
+			else
+			{
+				resolve(self.result);
+			}
+		});
 	}
 }

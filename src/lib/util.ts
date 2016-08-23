@@ -1,65 +1,76 @@
-import { self, throw_error } from './task';
+// interface TaskInstance
+export interface TaskInstance<T> extends IterableIterator<T> {
+	is_async_iterator?: void;
+	next(value: any): IteratorResult<any>;
+	throw?(e: any): IteratorResult<any>;
+	[Symbol.iterator](): TaskInstance<T>;
+}
 
-// callback function warp helper
-// add two callback function after arguments
-// arguments...<success_callback>, <error_callback>
-export function warp(fn:Function):Function
+const MESSAGES:string[] = [
+	'Not in plug-task runtime context',
+	'Task has detached',
+	'Task resumed with out suspend'
+];
+export function throw_error(code:number):Error
 {
-	return function ()
-	{
-		let task = self();
-		if (task)
+	return new Error(`E${code}: ${MESSAGES[code % 10]}`);
+}
+
+// calculate the time duration, make sure ervery task has chance to run
+var time_fn = ('object' == typeof process) && process.hrtime;
+if (!time_fn)
+{
+	time_fn = function(start?:number[]) {
+		let now = Date.now()/1000;
+		if (start)
 		{
-			Array.prototype.push.call(arguments, task.callback_success, task.callback_error);
-			fn.apply(this, arguments);
-			task.suspend();
+			return [now - start[0]];
 		}
 		else
 		{
-			throw_error(100);
+			return [now];
 		}
 	}
 }
+export var hrtime = time_fn;
 
-// thunk like function callback warp helper
-// add one callback function after arguments
-// arguments...<callback(error, data)>
-export function thunk(fn:Function):Function
+export interface TaskConfig {
+	switch_time: number;
+}
+export var CONFIG:TaskConfig = {
+	switch_time: 1
+};
+export function config(options:TaskConfig):TaskConfig
 {
-	return function ()
+	let last = CONFIG;
+	if (options)
 	{
-		let task = self();
-		if (task)
-		{
-			Array.prototype.push.call(arguments, task.callback_error);
-			fn.apply(this, arguments);
-			task.suspend();
-		}
-		else
-		{
-			throw_error(100);
-		}
+		CONFIG = options;
 	}
+	return last;
 }
 
-export type CustomCallback = (err_cb:Function, succ_cb:Function, ...fn_data:any[]) => void;
-export function custom(fn:Function, callback:CustomCallback):Function
+export interface ExceptionHandler {
+	(error:any, name?:string):any;
+}
+var ON_EXCEPTION:ExceptionHandler;
+export function setExceptionHandler(handler:ExceptionHandler):ExceptionHandler
 {
-	return function ()
+	let last = ON_EXCEPTION;
+	ON_EXCEPTION = handler;
+	return last;
+}
+export function onException(name:string, error:any):void
+{
+	if (ON_EXCEPTION)
 	{
-		let task = self();
-		if (task)
-		{
-			Array.prototype.push.call(
-				arguments,
-				callback.bind(this, task.callback_error, task.callback_success)
-			);
-			fn.apply(this, arguments);
-			task.suspend();
-		}
-		else
-		{
-			throw_error(100);
-		}
+		ON_EXCEPTION(error, name);
+	}
+	else
+	{
+		console.log(
+			name + ' uncaughtException:\n%s\n',
+			(error.stack || error.toString())
+		);
 	}
 }

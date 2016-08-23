@@ -1,32 +1,34 @@
-import { TaskInstance, self_id, suspend, get } from './task';
+import { Task, get, self } from './task';
+import { self_id, suspend, wait, TaskInstance } from './api';
 
 /**
  * Queue
  */
 export class Queue<T> {
-	private queues:T[] = [];
 	private current = 0;
+	private queues:T[];
 	private put_waits:number[] = [];
 	private get_waits:number[] = [];
 
 	constructor(size:number);
 	constructor(size:number, values:T[]);
-	constructor(size:number, init:number, value?:T);
+	constructor(size:number, fill:number, value?:T);
 	constructor(private size:number, init?:any, value?:T)
 	{
-		if (init)
+		if (typeof init == 'number')
 		{
-			if (typeof init == 'number')
+			while (init --> 0)
 			{
-				while (init --> 0)
-				{
-					this.queues.push(value);
-				}
+				this.queues.push(value);
 			}
-			else
-			{
-				this.queues = init.slice(0);
-			}
+		}
+		else if (init instanceof Array)
+		{
+			this.queues = init.slice(0);
+		}
+		else
+		{
+			this.queues = [];
 		}
 		this.current = this.queues.length;
 	}
@@ -35,9 +37,12 @@ export class Queue<T> {
 	{
 		if (this.size > 0 && this.current >= this.size)
 		{
-			// size queue, and current queue is full, put current task to wait
+			// size queue, and current queue is full,
+			// put current task to wait
 			this.put_waits.push(self_id());
-			yield suspend();
+			// suppend current task
+			yield* suspend();
+			// task resume, we can put value to the queue
 			this.queues.push(value);
 			return this.current;
 		}
@@ -46,10 +51,10 @@ export class Queue<T> {
 		while (this.get_waits.length > 0)
 		{
 			let tid = this.get_waits.shift();
-			let cur = get(tid);
-			if (cur)
+			let get_task = get(tid);
+			if (get_task)
 			{
-				cur.resume(false, value, true);
+				get_task.resume_success(value);
 				return 0;
 			}
 		}
@@ -65,18 +70,18 @@ export class Queue<T> {
 		{
 			// waiting queue put
 			this.get_waits.push(self_id());
-			return yield <T>suspend();
+			return yield* wait<T>();
 		}
 
 		// resume put wait task
 		while (this.put_waits.length > 0)
 		{
 			let tid = this.put_waits.shift();
-			let cur = get(tid);
-			if (cur)
+			let put_task = get(tid);
+			if (put_task)
 			{
 				let value = this.queues.shift();
-				cur.resume(false, null, true);
+				put_task.resume_success();
 				return value;
 			}
 		}
@@ -84,5 +89,17 @@ export class Queue<T> {
 		// reduce wait task count, and return one queue;
 		this.current--;
 		return this.queues.shift();
+	}
+
+	*tryget():TaskInstance<T>
+	{
+		if (this.current > 0)
+		{
+			return yield* this.get();
+		}
+		else
+		{
+			return null;
+		}
 	}
 }
