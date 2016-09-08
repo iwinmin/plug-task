@@ -18,7 +18,7 @@ $ npm install --save plug-task
 ```typescript
 import * as plugtask from 'plug-task';
 
-function* subtask(id:number):plugtask.TaskInstance<number>
+function* subtask(id:number):plugtask.TaskIterator<number>
 {
   console.log('<subtask %d> started', id);
 
@@ -35,7 +35,7 @@ function* subtask(id:number):plugtask.TaskInstance<number>
 }
 
 // generator function can also use the plugtask api function
-function* async_call(id:number):plugtask.TaskInstance<string>
+function* async_call(id:number):plugtask.TaskIterator<string>
 {
   yield* plugtask.sleep(id * 1000);
   if (id % 2)
@@ -47,7 +47,7 @@ function* async_call(id:number):plugtask.TaskInstance<string>
 }
 
 // promise task for test the promise functionality
-function* promise_task(mode:number):plugtask.TaskInstance<string>
+function* promise_task(mode:number):plugtask.TaskIterator<string>
 {
   yield* plugtask.sleep(1000);
   if (mode % 2)
@@ -61,7 +61,7 @@ function* promise_task(mode:number):plugtask.TaskInstance<string>
 }
 
 // main task generator function
-function* main_task():plugtask.TaskInstance<void>
+function* main_task():plugtask.TaskIterator<void>
 {
   console.log('<main_task> start');
   // create a sub task, you can name it a thread or a fiber
@@ -414,7 +414,7 @@ __handler__ | `function` | callback function with type `function(error){}`
 
 ### wrap(fn)
 Convert a `fn(...args, success_callback(data), error_callback(err))` function
-to a `TaskInstance` generator function.
+to a `TaskIterator` generator function.
 
 name | type | comment
 --- | --- | ---
@@ -425,7 +425,7 @@ __fn__ | `function` | function accept two callback function
 
 ### thunk(fn)
 Convert a thunk function `fn(...args, callback(error, data))` function to a
-`TaskInstance` generator function.
+`TaskIterator` generator function.
 
 name | type | comment
 --- | --- | ---
@@ -435,7 +435,7 @@ __fn__ | `function` | thunk function
 
 
 ### custom(fn, callback2thunk)
-Convert a custom callback function to a `TaskInstance` generator function.
+Convert a custom callback function to a `TaskIterator` generator function.
 use a custom callback2thunk function to convert the function callback
 to a thunk callback standard.
 
@@ -530,7 +530,7 @@ import * as plugtask from 'plug-task';
 
 var queue = new plugtask.Queue<number>(2);
 
-function* producer():plugtask.TaskInstance<void>
+function* producer():plugtask.TaskIterator<void>
 {
   var id = 1;
   while (true)
@@ -540,7 +540,7 @@ function* producer():plugtask.TaskInstance<void>
   }
 }
 
-function* consumer(id:number):plugtask.TaskInstance<void>
+function* consumer(id:number):plugtask.TaskIterator<void>
 {
   var time = 3;
   while (time --> 0)
@@ -616,7 +616,7 @@ import * as plugtask from 'plug-task';
 // create a keeper queue with init item as a key
 let keeper = new plugtask.Queue<string>(0, ['key']);
 
-function* visitor(name:string):plugtask.TaskInstance<void>
+function* visitor(name:string):plugtask.TaskIterator<void>
 {
   for (let time=1; time<=3; time++)
   {

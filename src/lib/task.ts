@@ -1,4 +1,11 @@
-import { throw_error, TaskInstance, CONFIG, hrtime, onException } from './util';
+import { throw_error, CONFIG, hrtime, onException } from './util';
+// interface TaskIterator
+export interface TaskIterator<T> extends IterableIterator<T> {
+	readonly [Symbol.toStringTag]?: "AsyncGeneratorIterator";
+	next(value: any): IteratorResult<any>;
+	throw?(e: any): IteratorResult<any>;
+	[Symbol.iterator](): TaskIterator<T>;
+}
 
 // Task Status
 const TASK_STAT = {
@@ -84,7 +91,7 @@ export function self():Task<any>
 /**
  * Task
  */
-export class Task<T> implements Promise<T> {
+export class Task<T> implements PromiseLike<T> {
 	public id = new_id();
 	public code = 0;
 	public error:any;
@@ -101,7 +108,7 @@ export class Task<T> implements Promise<T> {
 	private promise_callbacks:Function[];
 
 	constructor(
-		private generator:TaskInstance<T>,
+		private generator:TaskIterator<T>,
 		private parent_tid:number,
 		public comment?:string)
 	{
@@ -167,11 +174,11 @@ export class Task<T> implements Promise<T> {
 	}
 
 	// promise like
-	[Symbol.toStringTag]: "Promise";
-	public then<TResult>(
+	[Symbol.toStringTag]: "PlugTaskPromise";
+	public then<TResult, TReject>(
 		onfulfilled:(value:T)=>TResult | PromiseLike<TResult>,
-		onrejected?:(reason:any)=>TResult | PromiseLike<TResult> | void
-	):Promise<TResult>
+		onrejected?:(reason:any)=>TReject | PromiseLike<TReject>
+	):PromiseLike<TResult>
 	{
 		if (!this.promise)
 		{
@@ -179,7 +186,7 @@ export class Task<T> implements Promise<T> {
 		}
 		return this.promise.then(onfulfilled, onrejected);
 	}
-	public catch(onrejected?: (reason: any) => T | PromiseLike<T> | void): Promise<T>
+	public catch<TReject>(onrejected?: (reason: any) => TReject | PromiseLike<TReject>): PromiseLike<TReject>
 	{
 		if (!this.promise)
 		{

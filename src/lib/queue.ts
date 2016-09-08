@@ -1,5 +1,5 @@
-import { Task, get, self } from './task';
-import { self_id, suspend, wait, TaskInstance } from './api';
+import { Task, TaskIterator, get, self } from './task';
+import { self_id, suspend, wait } from './api';
 
 /**
  * Queue
@@ -33,7 +33,7 @@ export class Queue<T> {
 		this.current = this.queues.length;
 	}
 
-	*put(value:T):TaskInstance<number>
+	*put(value:T):TaskIterator<number>
 	{
 		if (this.size > 0 && this.current >= this.size)
 		{
@@ -64,7 +64,7 @@ export class Queue<T> {
 		return ++this.current;
 	}
 
-	*get():TaskInstance<T>
+	*get():TaskIterator<T>
 	{
 		if (this.current <= 0)
 		{
@@ -91,7 +91,7 @@ export class Queue<T> {
 		return this.queues.shift();
 	}
 
-	*tryget():TaskInstance<T>
+	*tryget():TaskIterator<T>
 	{
 		if (this.current > 0)
 		{

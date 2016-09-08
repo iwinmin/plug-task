@@ -1,11 +1,3 @@
-// interface TaskInstance
-export interface TaskInstance<T> extends IterableIterator<T> {
-	is_async_iterator?: void;
-	next(value: any): IteratorResult<any>;
-	throw?(e: any): IteratorResult<any>;
-	[Symbol.iterator](): TaskInstance<T>;
-}
-
 const MESSAGES:string[] = [
 	'Not in plug-task runtime context',
 	'Task has detached',
