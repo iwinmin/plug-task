@@ -1,6 +1,11 @@
 # plug-task
 > ECMASCRIPT6 JavaScript multiply task module
 
+## v0.2.3 changelog
+- bug fixed
+- fixed `new Queue(size, fill, value)` with uninitiated queue variable
+- [Class Queue](#queue-module) add `Queue.*push(value)` method, so that Queue can act as a FIFO queue
+
 ## v0.2.0 changelog
 - complete the test case and examples
 - massive change to the api, make it more standard
@@ -495,7 +500,7 @@ __value__ | `any` | value that fill into the cache list
 
 
 ### Queue.*get()
-get a queue item, if queue is empty, will suspend current task and wait
+get a queue item from queue's tail, if queue is empty, will suspend current task and wait
 
 name | type | comment
 --- | --- | ---
@@ -503,7 +508,7 @@ name | type | comment
 
 
 ### Queue.*put(value)
-put a item into queue, if queue has size limit and queue is full, will suspend current task and wait
+put a item into queue head, if queue has size limit and queue is full, will suspend current task and wait
 
 name | type | comment
 --- | --- | ---
@@ -511,6 +516,14 @@ __value__ | `any` | item value need to put into queue
 ||
 *RETURN* | `number` | return current queue items count
 
+### Queue.*push(value)
+push a item into queue tail, if queue has size limit and queue is full, will suspend current task and wait
+
+name | type | comment
+--- | --- | ---
+__value__ | `any` | item value need to push into queue
+||
+*RETURN* | `number` | return current queue items count
 
 ### Queue.*tryget()
 get a queue item like get, but if queue is empty, method will return `null` without wait

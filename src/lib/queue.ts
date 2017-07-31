@@ -15,25 +15,56 @@ export class Queue<T> {
 	constructor(size:number, fill:number, value?:T);
 	constructor(private size:number, init?:any, value?:T)
 	{
-		if (typeof init == 'number')
-		{
-			while (init --> 0)
-			{
-				this.queues.push(value);
-			}
-		}
-		else if (init instanceof Array)
+		if (init instanceof Array)
 		{
 			this.queues = init.slice(0);
 		}
 		else
 		{
 			this.queues = [];
+			if (typeof init == 'number')
+			{
+				while (init --> 0)
+				{
+					this.queues.push(value);
+				}
+			}
 		}
 		this.current = this.queues.length;
 	}
 
 	*put(value:T):TaskIterator<number>
+	{
+		if (this.size > 0 && this.current >= this.size)
+		{
+			// size queue, and current queue is full,
+			// put current task to wait
+			this.put_waits.push(self_id());
+			// suppend current task
+			yield* suspend();
+			// task resume, we can put value to the queue
+			this.queues.unshift(value);
+			return this.current;
+		}
+
+		// resume get wait task, direct send the value to the get task
+		while (this.get_waits.length > 0)
+		{
+			let tid = this.get_waits.shift();
+			let get_task = get(tid);
+			if (get_task)
+			{
+				get_task.resume_success(value);
+				return 0;
+			}
+		}
+
+		// cache the value
+		this.queues.unshift(value);
+		return ++this.current;
+	}
+
+	*push(value:T):TaskIterator<number>
 	{
 		if (this.size > 0 && this.current >= this.size)
 		{
@@ -80,7 +111,7 @@ export class Queue<T> {
 			let put_task = get(tid);
 			if (put_task)
 			{
-				let value = this.queues.shift();
+				let value = this.queues.pop();
 				put_task.resume_success();
 				return value;
 			}
@@ -88,7 +119,7 @@ export class Queue<T> {
 
 		// reduce wait task count, and return one queue;
 		this.current--;
-		return this.queues.shift();
+		return this.queues.pop();
 	}
 
 	*tryget():TaskIterator<T>
