@@ -5,7 +5,6 @@ import { self_id, suspend, wait } from './api';
  * Queue
  */
 export class Queue<T> {
-	private current = 0;
 	private queues:T[];
 	private put_waits:number[] = [];
 	private get_waits:number[] = [];
@@ -30,21 +29,17 @@ export class Queue<T> {
 				}
 			}
 		}
-		this.current = this.queues.length;
 	}
 
 	*put(value:T):TaskIterator<number>
 	{
-		if (this.size > 0 && this.current >= this.size)
+		if (this.size > 0 && this.queues.length >= this.size)
 		{
 			// size queue, and current queue is full,
 			// put current task to wait
 			this.put_waits.push(self_id());
 			// suppend current task
 			yield* suspend();
-			// task resume, we can put value to the queue
-			this.queues.unshift(value);
-			return this.current;
 		}
 
 		// resume get wait task, direct send the value to the get task
@@ -60,22 +55,18 @@ export class Queue<T> {
 		}
 
 		// cache the value
-		this.queues.unshift(value);
-		return ++this.current;
+		return this.queues.unshift(value);
 	}
 
 	*push(value:T):TaskIterator<number>
 	{
-		if (this.size > 0 && this.current >= this.size)
+		if (this.size > 0 && this.queues.length >= this.size)
 		{
 			// size queue, and current queue is full,
 			// put current task to wait
 			this.put_waits.push(self_id());
 			// suppend current task
 			yield* suspend();
-			// task resume, we can put value to the queue
-			this.queues.push(value);
-			return this.current;
 		}
 
 		// resume get wait task, direct send the value to the get task
@@ -91,13 +82,12 @@ export class Queue<T> {
 		}
 
 		// cache the value
-		this.queues.push(value);
-		return ++this.current;
+		return this.queues.push(value);
 	}
 
 	*get():TaskIterator<T>
 	{
-		if (this.current <= 0)
+		if (this.queues.length <= 0)
 		{
 			// waiting queue put
 			this.get_waits.push(self_id());
@@ -111,20 +101,18 @@ export class Queue<T> {
 			let put_task = get(tid);
 			if (put_task)
 			{
-				let value = this.queues.pop();
 				put_task.resume_success();
-				return value;
+				break;
 			}
 		}
 
 		// reduce wait task count, and return one queue;
-		this.current--;
 		return this.queues.pop();
 	}
 
 	*tryget():TaskIterator<T>
 	{
-		if (this.current > 0)
+		if (this.queues.length > 0)
 		{
 			return yield* this.get();
 		}

@@ -1,6 +1,9 @@
 # plug-task
 > ECMASCRIPT6 JavaScript multiply task module
 
+## v0.2.4 changelog
+- fixed Queue Module Continuous get() return undefined while has suspended put() task.
+
 ## v0.2.3 changelog
 - bug fixed
 - fixed `new Queue(size, fill, value)` with uninitiated queue variable
